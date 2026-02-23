@@ -1,9 +1,12 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+"use client";
+
+import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard, FileText, Mic, History, Settings, LogOut, Brain, ChevronLeft, ChevronRight,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,13 +21,24 @@ const navItems = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout, init, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    init();
+  }, [init]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("auth_token");
+    if (!token && pathname !== "/login" && pathname !== "/signup") {
+      router.push("/login");
+    }
+  }, [pathname, router]);
 
   const handleLogout = () => {
     logout();
-    navigate("/login");
+    router.push("/login");
   };
 
   return (
@@ -47,9 +61,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 p-3 space-y-1">
           {navItems.map(({ icon: Icon, label, path }) => {
-            const active = location.pathname === path;
+            const active = pathname === path;
             return (
-              <Link key={path} to={path}>
+              <Link key={path} href={path}>
                 <div
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
@@ -86,7 +100,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main content */}
       <main className="flex-1 overflow-auto">
         <motion.div
-          key={location.pathname}
+          key={pathname}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}

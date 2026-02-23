@@ -1,0 +1,24 @@
+{
+    "name": "@backend/interview-service",
+    "version": "1.0.0",
+    "description": "Interview session Service for AI Mock Interview Platform",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "nodemon index.js"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.78.0",
+        "@google/genai": "^1.42.0",
+        "@prisma/client": "^6.19.2",
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "openai": "^6.22.0",
+        "redis": "^5.11.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.14",
+        "prisma": "^6.19.2"
+    }
+}

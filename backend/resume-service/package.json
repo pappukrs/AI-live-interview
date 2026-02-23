@@ -1,0 +1,21 @@
+{
+    "name": "@backend/resume-service",
+    "version": "1.0.0",
+    "description": "Resume parsing Service for AI Mock Interview Platform",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "nodemon index.js"
+    },
+    "dependencies": {
+        "@google/genai": "^1.42.0",
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "multer": "^1.4.5-lts.1",
+        "pdf-parse": "^1.1.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.14"
+    }
+}

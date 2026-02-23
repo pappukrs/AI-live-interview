@@ -1,0 +1,16 @@
+{
+  "name": "ai-mock-interview-backend",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "api-gateway",
+    "user-service",
+    "resume-service",
+    "interview-service",
+    "shared"
+  ],
+  "scripts": {
+    "start": "npm run start --workspaces --if-present",
+    "dev": "concurrently \"npm run dev -w @backend/api-gateway\" \"npm run dev -w @backend/user-service\" \"npm run dev -w @backend/resume-service\" \"npm run dev -w @backend/interview-service\""
+  }
+}

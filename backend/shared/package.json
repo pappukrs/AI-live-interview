@@ -1,0 +1,14 @@
+{
+    "name": "@backend/shared",
+    "version": "1.0.0",
+    "description": "Shared configurations and types for backend microservices",
+    "main": "index.js",
+    "dependencies": {
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.14"
+    }
+}

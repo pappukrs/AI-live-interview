@@ -23,8 +23,9 @@ export interface InterviewQuestion {
 export interface AnswerEvaluation {
   score: number;
   feedback: string;
-  improvement: string;
+  improvement?: string;
   strengths: string[];
+  nextQuestion?: string;
 }
 
 export interface InterviewSession {
