@@ -1,6 +1,6 @@
 # 🤖 AI Mock Interview Platform
 
-## 🚀 Overview
+## Overview
 
 AI Mock Interview Platform is an intelligent interview simulation system that conducts real-time mock interviews using AI. The platform analyzes a candidate’s resume, generates personalized interview questions based on experience, evaluates spoken or written answers, and provides structured feedback.
 
@@ -16,7 +16,7 @@ This project aims to simulate a real interviewer experience using:
 
 ---
 
-## 🎯 Problem Statement
+##  Problem Statement
 
 Candidates struggle to prepare for real interviews because:
 
@@ -29,9 +29,9 @@ This platform solves these problems using AI.
 
 ---
 
-## ✨ Features
+##  Features
 
-### 🧾 Resume-Based Interview Generation
+### Resume-Based Interview Generation
 
 * Upload resume (PDF/DOC)
 * Extract skills, experience, and role
@@ -40,7 +40,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 🎤 Voice-Based Interview Simulation
+### Voice-Based Interview Simulation
 
 * Record spoken answers
 * Speech-to-text conversion
@@ -49,7 +49,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 🧠 AI Answer Evaluation
+###  AI Answer Evaluation
 
 * Technical correctness scoring
 * Communication analysis
@@ -59,7 +59,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 🔄 Interview Flow Controller
+###  Interview Flow Controller
 
 * One question at a time
 * AI asks next question based on previous answer
@@ -68,7 +68,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 📊 Performance Analytics
+###  Performance Analytics
 
 * Score per question
 * Strength & weakness analysis
@@ -77,7 +77,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 🔑 Bring Your Own API Key (BYOK)
+###  Bring Your Own API Key (BYOK)
 
 * Users can use their own AI provider API key
 * Supports:
@@ -90,7 +90,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 💬 Text-Based Interview Mode (MVP)
+###  Text-Based Interview Mode (MVP)
 
 * Type answers instead of speaking
 * Faster processing
@@ -98,7 +98,7 @@ This platform solves these problems using AI.
 
 ---
 
-### 📁 Interview History
+###  Interview History
 
 * Past interviews
 * Feedback tracking
@@ -177,7 +177,7 @@ IDLE → LISTENING → PROCESSING → FEEDBACK → NEXT QUESTION
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
 ### Frontend
 
@@ -216,7 +216,7 @@ IDLE → LISTENING → PROCESSING → FEEDBACK → NEXT QUESTION
 
 ---
 
-## 📡 API Design (High Level)
+##  API Design (High Level)
 
 ### Upload Resume
 
@@ -244,7 +244,7 @@ GET /api/interview/result/:sessionId
 
 ---
 
-## 🔐 API Key Management (BYOK Model)
+##  API Key Management (BYOK Model)
 
 Users can provide:
 
@@ -260,7 +260,7 @@ Users can provide:
 
 ---
 
-## 📊 Database Schema (Basic)
+##  Database Schema (Basic)
 
 ### Users
 
@@ -290,7 +290,7 @@ Users can provide:
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### 1. Clone Repository
 
@@ -346,7 +346,7 @@ npm run dev
 
 ---
 
-## 🔮 Future Improvements
+##  Future Improvements
 
 * Video interview simulation
 * Emotion detection
@@ -359,7 +359,7 @@ npm run dev
 
 ---
 
-## 🎯 Target Users
+##  Target Users
 
 * Software developers
 * Job seekers
@@ -369,7 +369,7 @@ npm run dev
 
 ---
 
-## 📈 Potential Business Model
+##  Potential Business Model
 
 * Bring your own API key (default)
 * Freemium usage tier
@@ -378,7 +378,7 @@ npm run dev
 
 ---
 
-## 🤝 Contribution
+##  Contribution
 
 Contributions are welcome.
 
