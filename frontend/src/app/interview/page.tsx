@@ -23,6 +23,7 @@ const stateLabels: Record<InterviewState, { label: string; icon: React.ElementTy
 
 const Interview = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const [state, setState] = useState<InterviewState>("idle");
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [currentQuestionText, setCurrentQuestionText] = useState("");

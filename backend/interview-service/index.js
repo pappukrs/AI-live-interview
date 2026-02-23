@@ -62,8 +62,10 @@ app.post('/start', async (req, res) => {
 
         if (!apiKey) return res.status(401).json({ error: 'API Key missing' });
 
-        const systemPrompt = `You are an expert technical interviewer. You will be provided with a candidate's resume data. Generate ONE personalized technical interview question to start the interview. Keep it concise.`;
-        const userPrompt = `Resume Information: \n${JSON.stringify(extractedData)}`;
+        const systemPrompt = `You are a strict senior technical interviewer. You will conduct a professional technical interview. 
+Based on the candidate's resume (Role: ${extractedData.role}, Experience: ${extractedData.experience}), generate ONE challenging technical interview question to start the interview. 
+Adjust the difficulty and depth based on their experience level. Keep the question concise and professional.`;
+        const userPrompt = `Candidate Resume Data: ${JSON.stringify(extractedData)}`;
 
         const question = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
 
@@ -77,7 +79,10 @@ app.post('/start', async (req, res) => {
         });
 
         const sessionId = interview.id;
-        const sessionData = { history: [{ role: 'assistant', content: question }] };
+        const sessionData = {
+            history: [{ role: 'assistant', content: question }],
+            meta: extractedData
+        };
 
         await redisClient.set(`session:${sessionId}`, JSON.stringify(sessionData), {
             EX: 3600 // Expire in 1 hour
@@ -110,14 +115,29 @@ app.post('/answer', async (req, res) => {
         const session = JSON.parse(sessionRaw);
         const lastQuestion = session.history[session.history.length - 1].content;
 
-        const systemPrompt = `You are an expert technical interviewer. Evaluate the candidate's answer to the provided question. 
-Provide your response in JSON format with two keys:
-1. "feedback": string (Feedback on their answer including correctness and improvement)
-2. "nextQuestion": string (The next interview question based on their answer)
-3. "score": number (Score between 1 and 10)
+        const systemPrompt = `You are a strict senior technical interviewer. Evaluate the candidate's answer to your previous question based on:
+- Correctness
+- Clarity
+- Communication
+- Depth
+- Confidence
+- Completeness
+
+Maintain the interview flow. If the candidate's answer is good, you can dive deeper or move to a new topic. If it's poor, give critical feedback.
+The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
+
+Provide your response in JSON format with these exact keys:
+1. "feedback": string (Concise, professional feedback)
+2. "nextQuestion": string (The next technical question or follow-up)
+3. "score": number (Integer between 1 and 10 based on the quality of their answer)
 4. "strengths": array of strings
-Do not include any markdown block formatting in your output, just plain JSON text.`;
-        const userPrompt = `Question: ${lastQuestion}\nAnswer: ${answer}`;
+5. "improvement": string (How they can do better)
+
+Return ONLY the JSON object. No markdown, no extra text.`;
+
+        // Format history for AI
+        const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
+        const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
 
         const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
 
@@ -128,7 +148,7 @@ Do not include any markdown block formatting in your output, just plain JSON tex
             try {
                 parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
             } catch (e2) {
-                parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more.", score: 5, strengths: [] };
+                parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
             }
         }
 

@@ -7,17 +7,23 @@ import { Mic, ArrowRight, Loader2, Calendar, Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useAuth } from "@/lib/use-auth";
 import { AppLayout } from "@/components/AppLayout";
 
 const HistoryPage = () => {
   const router = useRouter();
+  const { user } = useAuth();
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchHistory = async () => {
+      if (!user?.id) {
+        setLoading(false);
+        return;
+      }
       try {
-        const userId = "default-user";
+        const userId = user.id;
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/interview/history/${userId}`);
         if (response.ok) {
           const data = await response.json();

@@ -127,8 +127,18 @@ const Feedback = () => {
                     </div>
                     {q.evaluation.improvement && (
                       <div className="space-y-1">
-                        <p className="text-xs font-bold text-foreground">How to Improve</p>
+                        <p className="text-xs font-bold text-foreground font-mono">Areas for Improvement</p>
                         <p className="text-sm text-muted-foreground leading-relaxed">{q.evaluation.improvement}</p>
+                      </div>
+                    )}
+                    {q.evaluation.strengths && q.evaluation.strengths.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-foreground font-mono">Key Strengths</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {q.evaluation.strengths.map((s: string) => (
+                            <span key={s} className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-bold uppercase border border-success/20">{s}</span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

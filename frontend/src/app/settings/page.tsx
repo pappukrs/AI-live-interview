@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Key, Eye, EyeOff, Save, Shield } from "lucide-react";
+import { Key, Eye, EyeOff, Save, Shield, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppLayout } from "@/components/AppLayout";
 import { toast } from "sonner";
+
+import { useAuth } from "@/lib/use-auth";
 
 const apiProviders = [
   { id: "openai", name: "OpenAI", placeholder: "sk-..." },
@@ -17,19 +19,52 @@ const apiProviders = [
 ];
 
 const SettingsPage = () => {
+  const { user } = useAuth();
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [visible, setVisible] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Priority 1: User profile from backend
+    if (user?.api_key_encrypted) {
+      try {
+        setKeys(JSON.parse(user.api_key_encrypted));
+        return;
+      } catch (e) {
+        console.error("Failed to parse backend keys");
+      }
+    }
+
+    // Priority 2: Local storage (legacy/temp)
     const savedKeys = localStorage.getItem("ai_interview_keys");
     if (savedKeys) {
       setKeys(JSON.parse(savedKeys));
     }
-  }, []);
+  }, [user]);
 
-  const handleSave = (providerId: string, providerName: string) => {
-    localStorage.setItem("ai_interview_keys", JSON.stringify(keys));
-    toast.success(`${providerName} API key saved locally`);
+  const handleSave = async (providerId: string, providerName: string) => {
+    setLoading(true);
+    try {
+      // Always save locally first
+      localStorage.setItem("ai_interview_keys", JSON.stringify(keys));
+
+      // Save to backend if logged in
+      if (user?.id) {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}/apikey`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: JSON.stringify(keys) }),
+        });
+        if (!response.ok) throw new Error("Backend save failed");
+        toast.success(`${providerName} saved to cloud`);
+      } else {
+        toast.success(`${providerName} saved locally`);
+      }
+    } catch (err) {
+      toast.error("Failed to save key to cloud");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -73,8 +108,8 @@ const SettingsPage = () => {
                       {visible[provider.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                  <Button onClick={() => handleSave(provider.id, provider.name)} variant="outline" size="icon">
-                    <Save className="h-4 w-4" />
+                  <Button onClick={() => handleSave(provider.id, provider.name)} variant="outline" size="icon" disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   </Button>
                 </div>
               </motion.div>

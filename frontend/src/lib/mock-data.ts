@@ -3,6 +3,7 @@ export interface UserProfile {
   email: string;
   name: string;
   avatar?: string;
+  api_key_encrypted?: string;
 }
 
 export interface ResumeData {
