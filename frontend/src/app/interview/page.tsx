@@ -125,21 +125,29 @@ const Interview = () => {
       };
 
       utterance.onend = () => {
+        console.log("Speech synthesis ended. Starting listening in 500ms...");
         // Check stateRef instead of state to avoid stale closure
         if (stateRef.current !== "completed") {
-          startListening();
+          // Small delay before starting recognition to allow browser to clear audio buffers/state
+          setTimeout(() => {
+            if (stateRef.current !== "completed") {
+              startListening();
+            }
+          }, 500);
         }
       };
 
       utterance.onerror = (event) => {
         console.error("Speech synthesis error", event);
-        setState("listening"); // Fallback to listening even if speech fails
-        startListening();
+        if (stateRef.current !== "completed") {
+          setState("listening");
+          startListening();
+        }
       };
 
       synthesisRef.current = utterance;
       window.speechSynthesis.speak(utterance);
-    }, 100);
+    }, 200);
   }, [startListening]);
 
   // Initialize Socket.io and global Speech handlers

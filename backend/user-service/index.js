@@ -37,8 +37,11 @@ app.post('/signup', async (req, res) => {
         const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
         res.status(201).json({ user, token });
     } catch (error) {
-        console.error(error);
-        res.status(400).json({ error: 'User already exists or invalid data' });
+        console.error("Signup error:", error);
+        if (error.code === 'P2002') {
+            return res.status(409).json({ error: 'User with this email already exists' });
+        }
+        res.status(500).json({ error: 'Internal server error during signup', details: error.message });
     }
 });
 
