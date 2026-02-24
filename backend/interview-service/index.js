@@ -8,6 +8,16 @@ const { PrismaClient } = require('@prisma/client');
 require('dotenv').config();
 
 const app = express();
+const server = require('http').createServer(app);
+const io = require('socket.io')(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+io.engine.on("connection_error", (err) => {
+    console.log("Socket Engine Error:", err.req ? err.req.url : "unknown", err.code, err.message, err.context);
+});
 const PORT = process.env.PORT || 4003;
 const prisma = new PrismaClient();
 
@@ -62,9 +72,10 @@ app.post('/start', async (req, res) => {
 
         if (!apiKey) return res.status(401).json({ error: 'API Key missing' });
 
-        const systemPrompt = `You are a strict senior technical interviewer. You will conduct a professional technical interview. 
-Based on the candidate's resume (Role: ${extractedData.role}, Experience: ${extractedData.experience}), generate ONE challenging technical interview question to start the interview. 
-Adjust the difficulty and depth based on their experience level. Keep the question concise and professional.`;
+        const systemPrompt = `You are a professional senior technical interviewer. You will conduct a live, high-stakes technical interview. 
+Based on the candidate's resume (Role: ${extractedData.role}, Experience: ${extractedData.experience}), generate ONE challenging, open-ended technical interview question to start the interview. 
+Adjust the difficulty and depth based on their experience level. Keep the question concise and professional.
+Since this is a VOICE interview, keep your response short so it's easy to listen to.`;
         const userPrompt = `Candidate Resume Data: ${JSON.stringify(extractedData)}`;
 
         const question = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
@@ -115,25 +126,22 @@ app.post('/answer', async (req, res) => {
         const session = JSON.parse(sessionRaw);
         const lastQuestion = session.history[session.history.length - 1].content;
 
-        const systemPrompt = `You are a strict senior technical interviewer. Evaluate the candidate's answer to your previous question based on:
-- Correctness
-- Clarity
-- Communication
-- Depth
-- Confidence
-- Completeness
+        const systemPrompt = `You are a senior technical interviewer. Evaluate the candidate's answer to your previous question.
+Maintain a real-time conversational flow. Your goal is to keep the interview dynamic:
+1. If the candidate's answer is high-level, ASK A FOLLOW-UP to probe for deeper technical implementation details.
+2. If they mentioned a specific technology or pattern, pivot to ask how they handled a specific edge case with it.
+3. Act like a real person—if the answer was great, acknowledge it briefly before asking the next question.
 
-Maintain the interview flow. If the candidate's answer is good, you can dive deeper or move to a new topic. If it's poor, give critical feedback.
 The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
 
 Provide your response in JSON format with these exact keys:
-1. "feedback": string (Concise, professional feedback)
-2. "nextQuestion": string (The next technical question or follow-up)
-3. "score": number (Integer between 1 and 10 based on the quality of their answer)
+1. "feedback": string (Concise, conversational verbal feedback to the candidate)
+2. "nextQuestion": string (The next follow-up question or a new topic)
+3. "score": number (1-10)
 4. "strengths": array of strings
-5. "improvement": string (How they can do better)
+5. "improvement": string
 
-Return ONLY the JSON object. No markdown, no extra text.`;
+Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" short for voice interaction.`;
 
         // Format history for AI
         const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
@@ -186,6 +194,103 @@ Return ONLY the JSON object. No markdown, no extra text.`;
     }
 });
 
+// Socket.io Logic
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+
+    socket.on('interview:join', async ({ sessionId }) => {
+        socket.join(`session:${sessionId}`);
+        console.log(`Socket ${socket.id} joined session:${sessionId}`);
+    });
+
+    socket.on('interview:answer', async (data) => {
+        const { sessionId, answer, provider, apiKey } = data;
+        try {
+            // Reusing existing answer logic...
+            console.log(`Processing answer for session ${sessionId}...`);
+            const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
+            console.log(`Emitting feedback to session:${sessionId}`);
+            io.to(`session:${sessionId}`).emit('interview:feedback', result);
+        } catch (error) {
+            console.error(error);
+            socket.emit('error', { message: 'Failed to process answer' });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Client disconnected:', socket.id);
+    });
+});
+
+async function processAnswerLogic({ sessionId, answer, provider = 'gemini', apiKey }) {
+    if (!apiKey) throw new Error('API Key missing');
+
+    const sessionRaw = await redisClient.get(`session:${sessionId}`);
+    if (!sessionRaw) throw new Error('Session not found');
+
+    const session = JSON.parse(sessionRaw);
+    const lastQuestion = session.history[session.history.length - 1].content;
+
+    const systemPrompt = `You are a senior technical interviewer. Evaluate the candidate's answer to your previous question.
+Maintain a real-time conversational flow. Your goal is to keep the interview dynamic:
+1. If the candidate's answer is high-level, ASK A FOLLOW-UP to probe for deeper technical implementation details.
+2. If they mentioned a specific technology or pattern, pivot to ask how they handled a specific edge case with it.
+3. Act like a real person—if the answer was great, acknowledge it briefly before asking the next question.
+
+The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
+
+Provide your response in JSON format with these exact keys:
+1. "feedback": string (Concise, conversational verbal feedback to the candidate)
+2. "nextQuestion": string (The next follow-up question or a new topic)
+3. "score": number (1-10)
+4. "strengths": array of strings
+5. "improvement": string
+
+Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" short for voice interaction.`;
+
+    const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
+    const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
+
+    const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
+
+    let parsed;
+    try {
+        parsed = JSON.parse(rawResponse.trim());
+    } catch (e) {
+        try {
+            parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
+        } catch (e2) {
+            parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
+        }
+    }
+
+    session.history.push({ role: 'user', content: answer });
+    session.history.push({ role: 'assistant', content: parsed.nextQuestion });
+
+    await redisClient.set(`session:${sessionId}`, JSON.stringify(session), {
+        EX: 3600
+    });
+
+    await prisma.response.create({
+        data: {
+            interviewId: sessionId,
+            question: lastQuestion,
+            answer: answer,
+            evaluation: parsed,
+            score: parsed.score
+        }
+    });
+
+    await prisma.response.create({
+        data: {
+            interviewId: sessionId,
+            question: parsed.nextQuestion
+        }
+    });
+
+    return parsed;
+}
+
 app.get('/history/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -224,6 +329,6 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', service: 'interview-service' });
 });
 
-app.listen(PORT, () => {
-    console.log(`Interview Service is running on port ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Interview Service with WebSockets is running on port ${PORT}`);
 });

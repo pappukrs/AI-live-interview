@@ -31,6 +31,28 @@ app.use('/api/interview', createProxyMiddleware({
     pathRewrite: { '^/api/interview': '' }
 }));
 
-app.listen(PORT, () => {
+// WebSocket Proxy for Interview Service - Using pathFilter to avoid stripping /socket.io
+const wsProxy = createProxyMiddleware({
+    target: process.env.INTERVIEW_SERVICE_URL || 'http://localhost:4003',
+    changeOrigin: true,
+    ws: true,
+    pathFilter: '/socket.io',
+    logLevel: 'debug',
+    onProxyReqWs: (proxyReq, req, socket, options, head) => {
+        console.log(`[WS Proxy] Request: ${req.url}`);
+    },
+    onProxyRes: (proxyRes, req, res) => {
+        if (req.url.includes('socket.io')) {
+            console.log(`[Socket Proxy] ${req.method} ${req.url} -> ${proxyRes.statusCode}`);
+        }
+    }
+});
+
+app.use(wsProxy);
+
+const server = app.listen(PORT, () => {
     console.log(`API Gateway is running on port ${PORT}`);
 });
+
+// Explicitly handle upgrade event for WebSockets
+server.on('upgrade', wsProxy.upgrade);

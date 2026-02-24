@@ -184,11 +184,11 @@ IDLE → LISTENING → PROCESSING → FEEDBACK → NEXT QUESTION
 * React / Next.js
 * Web Speech API
 * WebRTC (audio capture)
-* Tailwind / Material UI
+* Tailwind /
 
 ### Backend
 
-* Node.js (Express) OR FastAPI
+* Node.js (Express) 
 * REST APIs
 * Session management
 

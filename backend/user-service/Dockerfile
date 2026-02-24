@@ -7,4 +7,4 @@ RUN npm install -g prisma@6
 COPY . .
 RUN npx prisma generate
 EXPOSE 4001
-CMD ["sh", "-c", "npx prisma db push && npm start"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npm start"]
