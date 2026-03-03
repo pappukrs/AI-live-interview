@@ -36,7 +36,8 @@ const wsProxy = createProxyMiddleware({
     target: process.env.INTERVIEW_SERVICE_URL || 'http://localhost:4003',
     changeOrigin: true,
     ws: true,
-    pathFilter: '/socket.io',
+    pathFilter: ['/socket.io', '/api/socket.io'],
+    pathRewrite: { '^/api': '' },
     logLevel: 'debug',
     onProxyReqWs: (proxyReq, req, socket, options, head) => {
         console.log(`[WS Proxy] Request: ${req.url}`);
