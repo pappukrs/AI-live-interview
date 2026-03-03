@@ -46,10 +46,12 @@ async function getAIResponse(provider, apiKey, systemPrompt, userPrompt) {
     } else if (provider === 'gemini') {
         const ai = new GoogleGenAI({ apiKey });
         try {
+            console.log(`[Gemini] Calling generateContent with model: gemini-3-flash-preview`);
             const response = await ai.models.generateContent({
                 model: "gemini-3-flash-preview",
                 contents: `${systemPrompt}\n\n${userPrompt}`
             });
+            console.log(`[Gemini] Response received successfully`);
             return response.text;
         } catch (error) {
             console.error("[Gemini Error]", error);
@@ -97,19 +99,24 @@ Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" sho
     const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
     const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
 
+    console.log(`[ProcessLogic] Calling AI for sessionId ${sessionId}...`);
     const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
+    console.log(`[ProcessLogic] AI responded for sessionId ${sessionId}`);
 
     let parsed;
     try {
         parsed = JSON.parse(rawResponse.trim());
     } catch (e) {
+        console.warn(`[ProcessLogic] JSON parse failed, trying cleanup for sessionId ${sessionId}`);
         try {
             parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
         } catch (e2) {
+            console.error(`[ProcessLogic] Final JSON parse failed for sessionId ${sessionId}`);
             parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
         }
     }
 
+    console.log(`[ProcessLogic] Updating session in Redis for ${sessionId}...`);
     session.history.push({ role: 'user', content: answer });
     session.history.push({ role: 'assistant', content: parsed.nextQuestion });
 
@@ -117,22 +124,29 @@ Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" sho
         EX: 3600
     });
 
-    await prisma.response.create({
-        data: {
-            interviewId: sessionId,
-            question: lastQuestion,
-            answer: answer,
-            evaluation: parsed,
-            score: parsed.score
-        }
-    });
+    console.log(`[ProcessLogic] Creating responses in DB for ${sessionId}...`);
+    try {
+        await prisma.response.create({
+            data: {
+                interviewId: sessionId,
+                question: lastQuestion,
+                answer: answer,
+                evaluation: parsed,
+                score: parsed.score
+            }
+        });
 
-    await prisma.response.create({
-        data: {
-            interviewId: sessionId,
-            question: parsed.nextQuestion
-        }
-    });
+        await prisma.response.create({
+            data: {
+                interviewId: sessionId,
+                question: parsed.nextQuestion
+            }
+        });
+        console.log(`[ProcessLogic] DB records created for ${sessionId}`);
+    } catch (prismaErr) {
+        console.error(`[ProcessLogic] Prisma Error for ${sessionId}:`, prismaErr);
+        // Continue anyway to try and send feedback
+    }
 
     return parsed;
 }
@@ -200,28 +214,34 @@ app.post('/answer', async (req, res) => {
 
 // Socket.io Logic
 io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    console.log(`[Socket] New connection: ${socket.id} (Namespace: ${socket.nsp.name})`);
 
     socket.on('interview:join', async ({ sessionId }) => {
+        console.log(`[Socket] Event 'interview:join' for sessionId: ${sessionId}, socketId: ${socket.id}`);
         socket.join(`session:${sessionId}`);
-        console.log(`Socket ${socket.id} joined session:${sessionId}`);
+        console.log(`[Socket] Socket ${socket.id} joined session:${sessionId}`);
     });
 
     socket.on('interview:answer', async (data) => {
         const { sessionId, answer, provider, apiKey } = data;
+        console.log(`[Socket] Event 'interview:answer' for sessionId: ${sessionId}, socketId: ${socket.id}`);
         try {
-            console.log(`Processing answer for session ${sessionId}...`);
+            console.log(`[Socket] Processing answer for session ${sessionId}...`);
             const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
-            console.log(`Emitting feedback to session:${sessionId}`);
+            console.log(`[Socket] Emitting feedback to session:${sessionId}`);
             io.to(`session:${sessionId}`).emit('interview:feedback', result);
         } catch (error) {
-            console.error(error);
+            console.error(`[Socket Error] sessionId: ${sessionId}, error:`, error);
             socket.emit('error', { message: 'Failed to process answer' });
         }
     });
 
-    socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
+    socket.on('any', (event, ...args) => {
+        console.log(`[Socket] Received unknown event: ${event}`, args);
+    });
+
+    socket.on('disconnect', (reason) => {
+        console.log(`[Socket] Client disconnected: ${socket.id}, reason: ${reason}`);
     });
 });
 

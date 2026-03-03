@@ -149,23 +149,31 @@ const Interview = () => {
       window.speechSynthesis.speak(utterance);
     }, 200);
   }, [startListening]);
-
   // Initialize Socket.io and global Speech handlers
   useEffect(() => {
-    console.log("Initializing Socket.io...");
-    const socket = io(process.env.NEXT_PUBLIC_API_URL || "http://localhost:4003", {
-      transports: ["polling", "websocket"], // Explicitly allow both
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+    const socketBaseUrl = apiUrl.replace(/\/api$/, "");
+
+    console.log("Connecting to Socket at:", socketBaseUrl, "with path: /api/socket.io");
+
+    const socket = io(socketBaseUrl, {
+      path: "/api/socket.io",
+      transports: ["polling", "websocket"],
       reconnectionAttempts: 5
     });
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.log("Socket connected with ID:", socket.id);
+      console.log("✅ Socket connected! ID:", socket.id, "Namespace:", socket.nsp);
     });
 
     socket.on("connect_error", (err) => {
-      console.error("Socket connection error:", err);
+      console.error("❌ Socket connection error:", err);
       toast.error("Socket connection failed. Please refresh.");
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.log("ℹ️ Socket disconnected:", reason);
     });
 
     socket.on("interview:feedback", (data: AnswerEvaluation) => {
