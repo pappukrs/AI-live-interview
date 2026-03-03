@@ -44,14 +44,13 @@ async function getAIResponse(provider, apiKey, systemPrompt, userPrompt) {
         });
         return response.choices[0].message.content;
     } else if (provider === 'gemini') {
-        process.env.DEBUG && console.log(`[Gemini] Calling with model: models/gemini-1.5-flash`);
-        const client = new GoogleGenAI({ apiKey: apiKey });
+        const ai = new GoogleGenAI({ apiKey });
         try {
-            const response = await client.models.generateContent({
-                model: "models/gemini-1.5-flash",
-                contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }]
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: `${systemPrompt}\n\n${userPrompt}`
             });
-            return response.value.text();
+            return response.text;
         } catch (error) {
             console.error("[Gemini Error]", error);
             throw error;
