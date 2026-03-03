@@ -44,12 +44,18 @@ async function getAIResponse(provider, apiKey, systemPrompt, userPrompt) {
         });
         return response.choices[0].message.content;
     } else if (provider === 'gemini') {
-        const ai = new GoogleGenAI({ apiKey: apiKey });
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const response = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }]
-        });
-        return response.response.text();
+        process.env.DEBUG && console.log(`[Gemini] Calling with model: models/gemini-1.5-flash`);
+        const client = new GoogleGenAI({ apiKey: apiKey });
+        try {
+            const response = await client.models.generateContent({
+                model: "models/gemini-1.5-flash",
+                contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }]
+            });
+            return response.value.text();
+        } catch (error) {
+            console.error("[Gemini Error]", error);
+            throw error;
+        }
     } else if (provider === 'claude') {
         const anthropic = new Anthropic({ apiKey });
         const response = await anthropic.messages.create({
@@ -63,6 +69,76 @@ async function getAIResponse(provider, apiKey, systemPrompt, userPrompt) {
     throw new Error('Unsupported AI provider');
 }
 
+async function processAnswerLogic({ sessionId, answer, provider = 'gemini', apiKey }) {
+    if (!apiKey) throw new Error('API Key missing');
+
+    const sessionRaw = await redisClient.get(`session:${sessionId}`);
+    if (!sessionRaw) throw new Error('Session not found');
+
+    const session = JSON.parse(sessionRaw);
+    const lastQuestion = session.history[session.history.length - 1].content;
+
+    const systemPrompt = `You are a senior technical interviewer. Evaluate the candidate's answer to your previous question.
+Maintain a real-time conversational flow. Your goal is to keep the interview dynamic:
+1. If the candidate's answer is high-level, ASK A FOLLOW-UP to probe for deeper technical implementation details.
+2. If they mentioned a specific technology or pattern, pivot to ask how they handled a specific edge case with it.
+3. Act like a real person—if the answer was great, acknowledge it briefly before asking the next question.
+
+The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
+
+Provide your response in JSON format with these exact keys:
+1. "feedback": string (Concise, conversational verbal feedback to the candidate)
+2. "nextQuestion": string (The next follow-up question or a new topic)
+3. "score": number (1-10)
+4. "strengths": array of strings
+5. "improvement": string
+
+Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" short for voice interaction.`;
+
+    const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
+    const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
+
+    const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
+
+    let parsed;
+    try {
+        parsed = JSON.parse(rawResponse.trim());
+    } catch (e) {
+        try {
+            parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
+        } catch (e2) {
+            parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
+        }
+    }
+
+    session.history.push({ role: 'user', content: answer });
+    session.history.push({ role: 'assistant', content: parsed.nextQuestion });
+
+    await redisClient.set(`session:${sessionId}`, JSON.stringify(session), {
+        EX: 3600
+    });
+
+    await prisma.response.create({
+        data: {
+            interviewId: sessionId,
+            question: lastQuestion,
+            answer: answer,
+            evaluation: parsed,
+            score: parsed.score
+        }
+    });
+
+    await prisma.response.create({
+        data: {
+            interviewId: sessionId,
+            question: parsed.nextQuestion
+        }
+    });
+
+    return parsed;
+}
+
+// REST endpoint: Start interview
 app.post('/start', async (req, res) => {
     try {
         const { extractedData, provider = 'gemini', apiKey, userId = 'default-user' } = req.body;
@@ -111,210 +187,83 @@ Since this is a VOICE interview, keep your response short so it's easy to listen
     }
 });
 
+// REST endpoint: Submit answer
 app.post('/answer', async (req, res) => {
     try {
         const { sessionId, answer, provider = 'gemini', apiKey } = req.body;
+        const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
+        res.json(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message || 'Failed to process answer' });
+    }
+});
 
-        if (!apiKey) return res.status(401).json({ error: 'API Key missing' });
+// Socket.io Logic
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
 
-        const sessionRaw = await redisClient.get(`session:${sessionId}`);
-        if (!sessionRaw) return res.status(404).json({ error: 'Session not found' });
+    socket.on('interview:join', async ({ sessionId }) => {
+        socket.join(`session:${sessionId}`);
+        console.log(`Socket ${socket.id} joined session:${sessionId}`);
+    });
 
-        const session = JSON.parse(sessionRaw);
-        const lastQuestion = session.history[session.history.length - 1].content;
-
-        const systemPrompt = `You are a senior technical interviewer. Evaluate the candidate's answer to your previous question.
-Maintain a real-time conversational flow. Your goal is to keep the interview dynamic:
-1. If the candidate's answer is high-level, ASK A FOLLOW-UP to probe for deeper technical implementation details.
-2. If they mentioned a specific technology or pattern, pivot to ask how they handled a specific edge case with it.
-3. Act like a real person—if the answer was great, acknowledge it briefly before asking the next question.
-
-The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
-
-Provide your response in JSON format with these exact keys:
-1. "feedback": string (Concise, conversational verbal feedback to the candidate)
-2. "nextQuestion": string (The next follow-up question or a new topic)
-3. "score": number (1-10)
-4. "strengths": array of strings
-5. "improvement": string
-
-Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" short for voice interaction.`;
-
-        // Format history for AI
-        const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
-        const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
-
-        const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
-
-        let parsed;
+    socket.on('interview:answer', async (data) => {
+        const { sessionId, answer, provider, apiKey } = data;
         try {
-            parsed = JSON.parse(rawResponse.trim());
-        } catch (e) {
-            try {
-                parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
-            } catch (e2) {
-                parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
-            }
+            console.log(`Processing answer for session ${sessionId}...`);
+            const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
+            console.log(`Emitting feedback to session:${sessionId}`);
+            io.to(`session:${sessionId}`).emit('interview:feedback', result);
+        } catch (error) {
+            console.error(error);
+            socket.emit('error', { message: 'Failed to process answer' });
         }
+    });
 
-        session.history.push({ role: 'user', content: answer });
-        session.history.push({ role: 'assistant', content: parsed.nextQuestion });
+    socket.on('disconnect', () => {
+        console.log('Client disconnected:', socket.id);
+    });
+});
 
-        // Save updated session to Redis
-        await redisClient.set(`session:${sessionId}`, JSON.stringify(session), {
-            EX: 3600
-        });
-
-        // Record response in DB
-        await prisma.response.create({
-            data: {
-                interviewId: sessionId,
-                question: lastQuestion,
-                answer: answer,
-                const { sessionId, answer, provider, apiKey } = req.body;
-                const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
-                res.json(result);
-            } catch(error) {
-                console.error(error);
-                res.status(500).json({ error: error.message || 'Failed to process answer' });
-            }
-        });
-
-        // Socket.io Logic
-        io.on('connection', (socket) => {
-            console.log('Client connected:', socket.id);
-
-            socket.on('interview:join', async ({ sessionId }) => {
-                socket.join(`session:${sessionId}`);
-                console.log(`Socket ${socket.id} joined session:${sessionId}`);
-            });
-
-            socket.on('interview:answer', async (data) => {
-                const { sessionId, answer, provider, apiKey } = data;
-                try {
-                    // Reusing existing answer logic...
-                    console.log(`Processing answer for session ${sessionId}...`);
-                    const result = await processAnswerLogic({ sessionId, answer, provider, apiKey });
-                    console.log(`Emitting feedback to session:${sessionId}`);
-                    io.to(`session:${sessionId}`).emit('interview:feedback', result);
-                } catch (error) {
-                    console.error(error);
-                    socket.emit('error', { message: 'Failed to process answer' });
+app.get('/history/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const interviews = await prisma.interview.findMany({
+            where: { userId },
+            include: {
+                _count: {
+                    select: { responses: true }
                 }
-            });
-
-            socket.on('disconnect', () => {
-                console.log('Client disconnected:', socket.id);
-            });
+            },
+            orderBy: { createdAt: 'desc' }
         });
+        res.json(interviews);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch history' });
+    }
+});
 
-        async function processAnswerLogic({ sessionId, answer, provider = 'gemini', apiKey }) {
-            if (!apiKey) throw new Error('API Key missing');
-
-            const sessionRaw = await redisClient.get(`session:${sessionId}`);
-            if (!sessionRaw) throw new Error('Session not found');
-
-            const session = JSON.parse(sessionRaw);
-            const lastQuestion = session.history[session.history.length - 1].content;
-
-            const systemPrompt = `You are a senior technical interviewer. Evaluate the candidate's answer to your previous question.
-Maintain a real-time conversational flow. Your goal is to keep the interview dynamic:
-1. If the candidate's answer is high-level, ASK A FOLLOW-UP to probe for deeper technical implementation details.
-2. If they mentioned a specific technology or pattern, pivot to ask how they handled a specific edge case with it.
-3. Act like a real person—if the answer was great, acknowledge it briefly before asking the next question.
-
-The candidate's role is ${session.meta?.role} with ${session.meta?.experience} of experience.
-
-Provide your response in JSON format with these exact keys:
-1. "feedback": string (Concise, conversational verbal feedback to the candidate)
-2. "nextQuestion": string (The next follow-up question or a new topic)
-3. "score": number (1-10)
-4. "strengths": array of strings
-5. "improvement": string
-
-Return ONLY the JSON object. No markdown. Keep "feedback" and "nextQuestion" short for voice interaction.`;
-
-            const historyContext = session.history.map(h => `${h.role === 'assistant' ? 'Interviewer' : 'Candidate'}: ${h.content}`).join('\n');
-            const userPrompt = `Interview History so far:\n${historyContext}\n\nCandidate's Last Answer: ${answer}\n\nEvaluate and provide the next question.`;
-
-            const rawResponse = await getAIResponse(provider, apiKey, systemPrompt, userPrompt);
-
-            let parsed;
-            try {
-                parsed = JSON.parse(rawResponse.trim());
-            } catch (e) {
-                try {
-                    parsed = JSON.parse(rawResponse.replace(/```json/gi, '').replace(/```/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim());
-                } catch (e2) {
-                    parsed = { feedback: "Could not parse feedback", nextQuestion: "Tell me more about your experience.", score: 5, strengths: [], improvement: "Provide more details." };
-                }
-            }
-
-            session.history.push({ role: 'user', content: answer });
-            session.history.push({ role: 'assistant', content: parsed.nextQuestion });
-
-            await redisClient.set(`session:${sessionId}`, JSON.stringify(session), {
-                EX: 3600
-            });
-
-            await prisma.response.create({
-                data: {
-                    interviewId: sessionId,
-                    question: lastQuestion,
-                    answer: answer,
-                    evaluation: parsed,
-                    score: parsed.score
-                }
-            });
-
-            await prisma.response.create({
-                data: {
-                    interviewId: sessionId,
-                    question: parsed.nextQuestion
-                }
-            });
-
-            return parsed;
-        }
-
-        app.get('/history/:userId', async (req, res) => {
-            try {
-                const { userId } = req.params;
-                const interviews = await prisma.interview.findMany({
-                    where: { userId },
-                    include: {
-                        _count: {
-                            select: { responses: true }
-                        }
-                    },
-                    orderBy: { createdAt: 'desc' }
-                });
-                res.json(interviews);
-            } catch (error) {
-                console.error(error);
-                res.status(500).json({ error: 'Failed to fetch history' });
-            }
+app.get('/session/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const interview = await prisma.interview.findUnique({
+            where: { id: sessionId },
+            include: { responses: true }
         });
+        if (!interview) return res.status(404).json({ error: 'Session not found' });
+        res.json(interview);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch session details' });
+    }
+});
 
-        app.get('/session/:sessionId', async (req, res) => {
-            try {
-                const { sessionId } = req.params;
-                const interview = await prisma.interview.findUnique({
-                    where: { id: sessionId },
-                    include: { responses: true }
-                });
-                if (!interview) return res.status(404).json({ error: 'Session not found' });
-                res.json(interview);
-            } catch (error) {
-                console.error(error);
-                res.status(500).json({ error: 'Failed to fetch session details' });
-            }
-        });
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', service: 'interview-service' });
+});
 
-        app.get('/health', (req, res) => {
-            res.json({ status: 'ok', service: 'interview-service' });
-        });
-
-        server.listen(PORT, () => {
-            console.log(`Interview Service with WebSockets is running on port ${PORT}`);
-        });
+server.listen(PORT, () => {
+    console.log(`Interview Service with WebSockets is running on port ${PORT}`);
+});

@@ -18,16 +18,19 @@ const upload = multer({ storage: storage });
 async function extractResumeData(text, apiKey) {
     if (!apiKey) throw new Error('API Key missing for resume parsing');
 
-    const genAI = new GoogleGenAI(apiKey);
-    const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        systemInstruction: "You are a professional resume parser. Extract skills, experience, and role from the provided resume text. Return ONLY valid JSON with keys: skills (array of strings), experience (string), and role (string)."
-    });
-
-    const result = await model.generateContent(`Resume Text:\n${text}`);
-    const response = await result.response;
-    const jsonStr = response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
-    return JSON.parse(jsonStr);
+    const client = new GoogleGenAI({ apiKey });
+    try {
+        const result = await client.models.generateContent({
+            model: "models/gemini-1.5-flash",
+            systemInstruction: "You are a professional resume parser. Extract skills, experience, and role from the provided resume text. Return ONLY valid JSON with keys: skills (array of strings), experience (string), and role (string).",
+            contents: `Resume Text:\n${text}`
+        });
+        const jsonStr = result.value.text().replace(/```json/gi, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error("[Gemini Resume Error]", error);
+        throw error;
+    }
 }
 
 app.post('/', upload.single('resume'), async (req, res) => {
